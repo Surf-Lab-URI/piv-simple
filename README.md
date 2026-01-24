@@ -143,7 +143,6 @@ piv-simple/
 ├── train.py                    # Training & inference CLI
 ├── requirements.txt            # Dependencies
 ├── README.md                   # This file
-├── CLAUDE.md                   # Development notes
 └── src/
     ├── __init__.py
     ├── piv_dataset_simple.py   # Dataset classes
