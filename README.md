@@ -26,8 +26,11 @@ And install the the cuda toolkit. You could probably also load one of the CUDA m
 ```bash
 conda install cuda -c nvidia
 ```
+It also requires a newer version of the C++ standard library than is provided by Expanse.
 
-But I'm still having issue with cupy. I will update.
+```bash
+conda install -c conda-forge libstdcxx-ng
+```
 
 Then clone the repository and install the dependencies
 ```bash
