@@ -3,6 +3,7 @@ import torch
 from torchvision import transforms
 from PIL import Image, ImageFilter, ImageOps
 import scipy.ndimage as ndimage
+import matplotlib.pyplot as plt
 
 import math
 import numbers
@@ -238,10 +239,10 @@ class RandomScale(object):
     *** WARNING *** Scale operation is dangerous for sparse optical flow ground truth
     """
     def __init__(self, scale, aspect_ratio=None, method: str = 'bilinear') -> None:
-        assert (isinstance(scale, collections.Iterable) and len(scale) == 2)
+        assert (isinstance(scale, collections.abc.Iterable) and len(scale) == 2)
 
         # Input scale restrictions
-        if isinstance(scale, collections.Iterable) and len(scale) == 2 \
+        if isinstance(scale, collections.abc.Iterable) and len(scale) == 2 \
                 and isinstance(scale[0], numbers.Number) and isinstance(scale[1], numbers.Number) \
                 and 0 < scale[0] < scale[1]:
             self.scale = scale
@@ -251,7 +252,7 @@ class RandomScale(object):
         # Input aspect ratio restrictions
         if aspect_ratio is None:
             self.aspect_ratio = aspect_ratio
-        elif isinstance(aspect_ratio, collections.Iterable) and len(aspect_ratio) == 2 \
+        elif isinstance(aspect_ratio, collections.abc.Iterable) and len(aspect_ratio) == 2 \
                 and isinstance(aspect_ratio[0], numbers.Number) and isinstance(aspect_ratio[1], numbers.Number) \
                 and 0 < aspect_ratio[0] < aspect_ratio[1]:
             self.aspect_ratio = aspect_ratio
@@ -299,7 +300,7 @@ class Crop(object):
         if isinstance(size, int):
             self.crop_h = size
             self.crop_w = size
-        elif isinstance(size, collections.Iterable) and len(size) == 2 \
+        elif isinstance(size, collections.abc.Iterable) and len(size) == 2 \
                 and isinstance(size[0], int) and isinstance(size[1], int) \
                 and size[0] > 0 and size[1] > 0:
             self.crop_h = size[0]
@@ -346,8 +347,15 @@ class Crop(object):
                 for img in img_list
             ]
             # Label padding
+            # print(label_list[0].shape)
             if len(label_list) > 0:
                 if label_list[0].shape[2] == 3:
+                    label_list = [
+                        np.pad(label,
+                               ((pad_h_half, pad_h - pad_h_half), (pad_w_half, pad_w - pad_w_half), (0, 0)),
+                               'constant') for label in label_list
+                    ]
+                elif label_list[0].shape[2] == 2:
                     label_list = [
                         np.pad(label,
                                ((pad_h_half, pad_h - pad_h_half), (pad_w_half, pad_w - pad_w_half), (0, 0)),
@@ -374,6 +382,7 @@ class Crop(object):
             label[h_off:h_off + self.crop_h, w_off:w_off + self.crop_w, :]
             for label in label_list
         ]
+        plt.imshow(img_list[0])
         return img_list, label_list
 
 
@@ -441,7 +450,7 @@ class Resize(object):
     'size' is a 2-element tuple or list in the order of (w, h)
     """
     def __init__(self, size, method: str = 'bilinear') -> None:
-        assert (isinstance(size, collections.Iterable) and len(size) == 2)
+        assert (isinstance(size, collections.abc.Iterable) and len(size) == 2)
         self.size = size
         self.method = method
 

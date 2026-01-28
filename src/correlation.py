@@ -276,7 +276,8 @@ def cupy_kernel(strFunction, objVariables):
 #used to be cupy.util.memoize, Andy changed it
 @cupy.memoize(for_each_device=True)
 def cupy_launch(strFunction, strKernel):
-    return cupy.cuda.compile_with_cache(strKernel).get_function(strFunction)
+    #return cupy.cuda.compile_with_cache(strKernel).get_function(strFunction) #compile_with_cache was removed in CuPy v13
+    return cupy.RawModule(code=strKernel).get_function(strFunction)
 
 
 # end

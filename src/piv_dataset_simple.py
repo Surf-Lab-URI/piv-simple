@@ -72,6 +72,9 @@ class PIVDataset(Dataset):
             dirs = [root / s for s in subsets]
         else:
             dirs = [d for d in root.iterdir() if d.is_dir() and not d.name.startswith('.')]
+
+        if not dirs:
+            dirs = [root]
         
         for subdir in sorted(dirs):
             if not subdir.exists():
@@ -123,7 +126,7 @@ def get_transform(crop_size=(256, 256)):
         f_transforms.RandomScale([0.95, 1.45]),
         f_transforms.RandomHorizontalFlip(),
         f_transforms.RandomVerticalFlip(),
-        f_transforms.Crop(crop_size, crop_type='rand'),
+        f_transforms.Crop(crop_size, crop_type='rand',padding=[0,0,0]),
         f_transforms.ModToTensor(),
         f_transforms.RandomPhotometric(
             min_noise_stddev=0.0,
