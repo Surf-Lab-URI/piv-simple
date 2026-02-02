@@ -13,7 +13,26 @@ Based on the PIV-LiteFlowNet architecture from [Cai et al., 2019](https://ieeexp
 - Outputs standard `.flo` flow files and color visualizations
 
 ## Installation
+Andy's process for installing on Expanse:
+Log in to a gpu node on Expanse and run the following commands. If you don't have conda, install miniconda first using [these instructions](https://www.anaconda.com/docs/getting-started/miniconda/install#linux-terminal-installer). Then set up a conda environment to work in:
+```bash
+conda create -n piv-simple python=3.14
+```
+Then activate the conda environment
+```bash
+conda activate piv-simple
+```
+And install the the cuda toolkit. You could probably also load one of the CUDA modules avaiable on Expanse, but then you'd have to do that every time. PyTorch comes with its own CUDA runtime environment, but cupy seems to require a full, separate CUDA toolkit installation.
+```bash
+conda install cuda -c nvidia
+```
+It also requires a newer version of the C++ standard library than is provided by Expanse.
 
+```bash
+conda install -c conda-forge libstdcxx-ng
+```
+
+Then clone the repository and install the dependencies
 ```bash
 # Clone the repository
 git clone https://github.com/your-username/piv-liteflownet.git
