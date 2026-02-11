@@ -3,8 +3,6 @@ import torch
 from torchvision import transforms
 from PIL import Image, ImageFilter, ImageOps
 import scipy.ndimage as ndimage
-import matplotlib.pyplot as plt
-
 import math
 import numbers
 import random
@@ -382,7 +380,6 @@ class Crop(object):
             label[h_off:h_off + self.crop_h, w_off:w_off + self.crop_w, :]
             for label in label_list
         ]
-        plt.imshow(img_list[0])
         return img_list, label_list
 
 

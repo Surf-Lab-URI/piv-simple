@@ -199,15 +199,26 @@ def hui_loss(level_eval=False, mul_scale=20, norm='L1'):
 		return MultiScale(div_scale=1/mul_scale, norm=norm)
 
 
-def piv_loss(level_eval=False, mul_scale=5, norm='L1', version: int = 1):
+_PIV_LOSS_WEIGHTS = {
+	1: {  # LiteFlowNet (6 levels, startScale=1)
+		'cai': (0.001, 0.001, 0.001, 0.001, 0.001, 0.01),
+		'hui': (0.32, 0.08, 0.02, 0.01, 0.005, 0.01),
+		'andy': (0.01, 0.01, 0.01, 0.01, 0.01, 0.1),
+	},
+	2: {  # LiteFlowNet2 (5 levels, startScale=2)
+		'cai': (0.001, 0.001, 0.001, 0.001, 0.01),
+		'hui': (0.32, 0.08, 0.02, 0.01, 0.005),
+	},
+}
+
+
+def piv_loss(level_eval=False, mul_scale=5, norm='L1', version: int = 1, loss_weights: str = 'hui'):
 	# Input Checking
-	if version == 1:  # Loss for PIV-LiteFlowNet-en
-		# loss_weight = (0.32, 0.08, 0.02, 0.01, 0.005, 0.01)
-		loss_weight = (0.001, 0.001, 0.001, 0.001, 0.001, 0.01)  # Value taken from Cai, 2019
-	elif version == 2:  # Loss for PIV-LiteFlowNet2-en
-		loss_weight = (0.001, 0.001, 0.001, 0.001, 0.01)  # Value adapted from Cai, 2019
-	else:
+	if version not in (1, 2):
 		raise ValueError(f'Unknown input value for "version" ({version})! Choose between 1 or 2 only!')
+
+	loss_weight = _PIV_LOSS_WEIGHTS[version][loss_weights]
+	print(f'Setting loss weights to {loss_weight}')
 
 	# Define the error
 	if level_eval:  # Evaluate the error on every level!

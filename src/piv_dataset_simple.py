@@ -122,23 +122,23 @@ class PIVDataset(Dataset):
 def get_transform(crop_size=(256, 256)):
     """Default transforms for training and validation."""
     train_transform = f_transforms.Compose([
-        f_transforms.RandomTranslate(16),
+        # f_transforms.RandomTranslate(16),
         f_transforms.RandomScale([0.95, 1.45]),
         f_transforms.RandomHorizontalFlip(),
         f_transforms.RandomVerticalFlip(),
         f_transforms.Crop(crop_size, crop_type='rand',padding=[0,0,0]),
         f_transforms.ModToTensor(),
-        f_transforms.RandomPhotometric(
-            min_noise_stddev=0.0,
-            max_noise_stddev=0.04,
-            min_contrast=-0.8,
-            max_contrast=0.4,
-            brightness_stddev=0.2,
-            min_color=0.5,
-            max_color=2.0,
-            min_gamma=0.7,
-            max_gamma=1.5,
-        ),
+        # f_transforms.RandomPhotometric(
+        #     min_noise_stddev=0.0,
+        #     max_noise_stddev=0.04,
+        #     min_contrast=-0.8,
+        #     max_contrast=0.4,
+        #     brightness_stddev=0.2,
+        #     min_color=0.5,
+        #     max_color=2.0,
+        #     min_gamma=0.7,
+        #     max_gamma=1.5,
+        # ),
     ])
     
     val_transform = f_transforms.Compose([

@@ -71,6 +71,15 @@ python train.py --mode train --data /path/to/piv_data --resume checkpoint.pth
 
 # Train on specific subsets
 python train.py --mode train --data /path/to/piv_data --subsets DNS_turbulence JHTDB_channel
+
+# Use flat Cai loss weights (better when coarse flow is easy)
+python train.py --mode train --data /path/to/piv_data --loss-weights cai
+
+# Per-layer learning rates (lower lr for fine NetE levels)
+python train.py --mode train --data /path/to/piv_data --lr 4e-5 --lr-fine 6e-5
+
+# SGDR scheduler tuning
+python train.py --mode train --data /path/to/piv_data --sgdr-t0 20 --sgdr-t-mult 2
 ```
 
 ### Inference
@@ -145,7 +154,11 @@ Flow files use the standard Middlebury `.flo` format:
 | `--epochs` | `100` | Number of training epochs |
 | `--batch-size` | `8` | Training batch size |
 | `--lr` | `1e-4` | Learning rate |
+| `--lr-fine` | `0` | Separate lr for fine NetE levels (pyramid < 4). `0` = disabled |
 | `--crop-size` | `256 256` | Training crop size (H W) |
+| `--sgdr-t0` | `10` | SGDR cosine scheduler: epochs in first cycle |
+| `--sgdr-t-mult` | `2` | SGDR cosine scheduler: cycle length multiplier |
+| `--loss-weights` | `hui` | Loss weight scheme: `hui` (coarse-heavy) or `cai` (flat) |
 | `--save-dir` | `./checkpoints` | Checkpoint save directory |
 | `--weights` | `""` | Pretrained weights for inference |
 | `--resume` | `""` | Resume training from checkpoint |
@@ -154,6 +167,13 @@ Flow files use the standard Middlebury `.flo` format:
 | `--output` | `./output` | Inference output directory |
 | `--device` | `cuda` | Device: `cuda` or `cpu` |
 | `--workers` | `4` | DataLoader workers |
+
+### Loss Weight Schemes
+
+| Scheme | v1 weights (6 levels) | v2 weights (5 levels) | Rationale |
+|--------|----------------------|----------------------|-----------|
+| `hui` | 0.32, 0.08, 0.02, 0.01, 0.005, 0.01 | 0.32, 0.08, 0.02, 0.01, 0.005 | Coarse-heavy. Prioritizes getting large-scale motion right first. Good default for training from scratch. |
+| `cai` | 0.001, 0.001, 0.001, 0.001, 0.001, 0.01 | 0.001, 0.001, 0.001, 0.001, 0.01 | Flat with fine-level emphasis. Better when coarse flow is easy (smooth, small PIV displacements). |
 
 ## Project Structure
 
@@ -178,7 +198,7 @@ piv-simple/
 ### Training
 - `checkpoints/config.json` - Training configuration
 - `checkpoints/checkpoint_last.pth` - Latest checkpoint
-- `checkpoints/model_best.pth` - Best validation EPE
+- `checkpoints/model_best.pth` - Best test EPE (deep-copied best model weights)
 - `checkpoints/checkpoint_XXX.pth` - Periodic checkpoints
 
 ### Inference

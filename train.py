@@ -17,12 +17,14 @@ Usage:
 """
 
 import argparse
+import copy
 import json
 import math
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import List, Optional, Tuple
+import matplotlib.pyplot as plt
 
 import numpy as np
 import torch
@@ -60,9 +62,10 @@ class Config:
     epochs: int = 100
     batch_size: int = 8
     lr: float = 1e-4
-    weight_decay: float = 4e-4
-    lr_decay_epoch: int = 50
-    lr_decay_factor: float = 0.5
+    weight_decay: float = 5e-6
+    lr_fine: float = 0.0  # separate lr for fine NetE levels (<4). 0 = disabled
+    sgdr_t0: int = 10
+    sgdr_t_mult: int = 2
     
     # Splits
     train_ratio: float = 0.7
@@ -79,7 +82,8 @@ class Config:
     
     # Loss
     loss_scale: int = 5  # mul_scale for piv_loss (5 for piv, 20 for hui)
-    loss_norm: str = "L1"
+    loss_norm: str = "L2"
+    loss_weights: str = "cai"  # "hui" (coarse-heavy) or "cai" (flat)
     
     def __post_init__(self):
         if not self.subsets:
@@ -101,6 +105,29 @@ def train_epoch(model, loader, criterion, optimizer, device, epoch):
         img1 = imgs[0].to(device)
         img2 = imgs[1].to(device)
         flow_gt = flows[0].to(device)
+
+        if (i + 1) % 10 == 0:
+            plt.figure()
+            plt.imshow(img1.to("cpu").numpy()[0][0,:,:])
+            plt.savefig("/home/agoering/agoering/piv-simple/debugplots/img1.png")
+            plt.close()
+
+            plt.figure()
+            plt.imshow(img2.to("cpu").numpy()[0][0,:,:])
+            plt.savefig("/home/agoering/agoering/piv-simple/debugplots/img2.png")
+            plt.close()
+
+            plt.figure()
+            im = plt.imshow(flow_gt.to("cpu").numpy()[0][0,:,:])
+            plt.colorbar(im)
+            plt.savefig("/home/agoering/agoering/piv-simple/debugplots/u.png")
+            plt.close()
+
+            plt.figure()
+            im = plt.imshow(flow_gt.to("cpu").numpy()[0][1,:,:])
+            plt.colorbar(im)
+            plt.savefig("/home/agoering/agoering/piv-simple/debugplots/v.png")
+            plt.close()
         
         optimizer.zero_grad()
         
@@ -118,8 +145,20 @@ def train_epoch(model, loader, criterion, optimizer, device, epoch):
         total_loss += loss.item()
         total_epe += epe.item()
         
-        if (i + 1) % 50 == 0:
+        if (i + 1) % 10 == 0:
             print(f"  Batch {i+1}/{len(loader)}: loss={loss.item():.4f}, EPE={epe.item():.4f}")
+
+            plt.figure()
+            im = plt.imshow(flow_pred[5][2].to("cpu").detach().numpy()[0,0,:,:])
+            plt.colorbar(im)
+            plt.savefig(f"/home/agoering/agoering/piv-simple/debugplots/u{i}.png")
+            plt.close()
+
+            plt.figure()
+            im = plt.imshow(flow_pred[5][2].to("cpu").detach().numpy()[0,1,:,:])
+            plt.colorbar(im)
+            plt.savefig(f"/home/agoering/agoering/piv-simple/debugplots/v{i}.png")
+            plt.close()
     
     n = len(loader)
     return total_loss / n, total_epe / n
@@ -132,6 +171,7 @@ def validate(model, loader, criterion, device):
     total_epe = 0.0
     
     with torch.no_grad():
+        c = 1
         for imgs, flows in loader:
             # imgs: [tensor(B,3,H,W), tensor(B,3,H,W)], flows: [tensor(B,2,H,W)]
             img1 = imgs[0].to(device)
@@ -140,12 +180,49 @@ def validate(model, loader, criterion, device):
             
             # Forward - eval mode returns final flow
             flow_pred = model(img1, img2)
+
+            if c % 3 == 0:
+                # plt.figure()
+                # plt.imshow(img1.to("cpu").numpy()[0][0,:,:])
+                # plt.savefig("/home/agoering/agoering/piv-simple/debugplots/valimg1.png")
+                # plt.close()
+
+                # plt.figure()
+                # plt.imshow(img2.to("cpu").numpy()[0][0,:,:])
+                # plt.savefig("/home/agoering/agoering/piv-simple/debugplots/valimg2.png")
+                # plt.close()
+
+                plt.figure()
+                im = plt.imshow(flow_gt.to("cpu").numpy()[0][0,:,:])
+                plt.colorbar(im)
+                plt.savefig(f"/home/agoering/agoering/piv-simple/debugplots/{c}valu.png")
+                plt.close()
+
+                plt.figure()
+                im = plt.imshow(flow_gt.to("cpu").numpy()[0][1,:,:])
+                plt.colorbar(im)
+                plt.savefig(f"/home/agoering/agoering/piv-simple/debugplots/{c}valv.png")
+                plt.close()
+
+                plt.figure()
+                im = plt.imshow(flow_pred[2].to("cpu").detach().numpy()[0,:,:])
+                plt.colorbar(im)
+                plt.savefig(f"/home/agoering/agoering/piv-simple/debugplots/{c}valpredu.png")
+                plt.close()
+
+                plt.figure()
+                im = plt.imshow(flow_pred[2].to("cpu").detach().numpy()[1,:,:])
+                plt.colorbar(im)
+                plt.savefig(f"/home/agoering/agoering/piv-simple/debugplots/{c}valpredv.png")
+                plt.close()
             
             # For validation, compute EPE at full resolution
             # flow_pred is already scaled in eval mode
             epe = torch.norm(flow_pred - flow_gt, p=2, dim=1).mean()
             
             total_epe += epe.item()
+            
+            c = c + 1
     
     return total_epe / len(loader)
 
@@ -154,7 +231,7 @@ def train(cfg: Config, resume: Optional[str] = None):
     """Main training loop."""
     device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-    
+
     # === Data ===
     print(f"\nLoading data from {cfg.data_root}")
     train_data, val_data, test_data = make_splits(
@@ -166,11 +243,11 @@ def train(cfg: Config, resume: Optional[str] = None):
         val_ratio=cfg.val_ratio,
         seed=cfg.seed,
     )
-    
+
     train_loader = DataLoader(
-        train_data, 
-        batch_size=cfg.batch_size, 
-        shuffle=True, 
+        train_data,
+        batch_size=cfg.batch_size,
+        shuffle=True,
         num_workers=cfg.num_workers,
         pin_memory=True,
     )
@@ -181,34 +258,73 @@ def train(cfg: Config, resume: Optional[str] = None):
         num_workers=cfg.num_workers,
         pin_memory=True,
     )
-    
+    test_loader = DataLoader(
+        test_data,
+        batch_size=cfg.batch_size,
+        shuffle=False,
+        num_workers=cfg.num_workers,
+        pin_memory=True,
+    )
+
     # === Model ===
     print(f"\nCreating {cfg.model} model (version {cfg.version})")
     if cfg.model == "piv":
+        print(f'cfg.model = {cfg.model}')
+        print(f'cfg.loss_weights = {cfg.loss_weights}')
         model = piv_liteflownet(params=None, version=cfg.version)
-        criterion = piv_loss(mul_scale=cfg.loss_scale, norm=cfg.loss_norm, version=cfg.version)
+        criterion = piv_loss(mul_scale=cfg.loss_scale, norm=cfg.loss_norm, version=cfg.version, loss_weights=cfg.loss_weights)
     else:
         model = hui_liteflownet(params=None, version=cfg.version)
         criterion = hui_loss(mul_scale=20, norm=cfg.loss_norm)
-    
+
     model = model.to(device)
-    
+
     # === Optimizer ===
-    optimizer = torch.optim.Adam(
-        model.parameters(), 
-        lr=cfg.lr, 
-        weight_decay=cfg.weight_decay
+    if cfg.lr_fine > 0:
+        # Per-layer lr: fine NetE levels (pyramid < 4) get lr_fine, rest get lr
+        lowest_level = 1 if cfg.version == 1 else 2
+        level2use = list(range(lowest_level, 7))
+        fine_idx = {i for i, lv in enumerate(level2use) if lv < 4}
+
+        def _is_fine_nete(name):
+            parts = name.split('.')
+            return (len(parts) >= 2 and parts[0].startswith('NetE_')
+                    and parts[1].isdigit() and int(parts[1]) in fine_idx)
+
+        fine_w, fine_b, other_w, other_b = [], [], [], []
+        for n, p in model.named_parameters():
+            if not p.requires_grad:
+                continue
+            if _is_fine_nete(n):
+                (fine_b if n.endswith('.bias') else fine_w).append(p)
+            else:
+                (other_b if n.endswith('.bias') else other_w).append(p)
+
+        param_groups = [
+            {'params': other_w, 'lr': cfg.lr, 'weight_decay': cfg.weight_decay},
+            {'params': other_b, 'lr': cfg.lr, 'weight_decay': 0.0},
+            {'params': fine_w,  'lr': cfg.lr_fine, 'weight_decay': cfg.weight_decay},
+            {'params': fine_b,  'lr': cfg.lr_fine, 'weight_decay': 0.0},
+        ]
+        optimizer = torch.optim.Adam(param_groups)
+        print(f"  Fine-level NetE lr={cfg.lr_fine}, other lr={cfg.lr}")
+    else:
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=cfg.lr,
+            weight_decay=cfg.weight_decay
+        )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer,
+        T_0=cfg.sgdr_t0,
+        T_mult=cfg.sgdr_t_mult,
     )
-    scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, 
-        step_size=cfg.lr_decay_epoch, 
-        gamma=cfg.lr_decay_factor
-    )
-    
+
     # === Resume ===
     start_epoch = 0
-    best_epe = float('inf')
-    
+    best_test_epe = float('inf')
+    model_best = None
+
     if resume:
         print(f"\nResuming from {resume}")
         ckpt = torch.load(resume, map_location=device)
@@ -216,65 +332,81 @@ def train(cfg: Config, resume: Optional[str] = None):
         optimizer.load_state_dict(ckpt['optimizer'])
         scheduler.load_state_dict(ckpt['scheduler'])
         start_epoch = ckpt['epoch'] + 1
-        best_epe = ckpt.get('best_epe', float('inf'))
-        print(f"  Resumed at epoch {start_epoch}, best_epe={best_epe:.4f}")
-    
+        best_test_epe = ckpt.get('best_test_epe', float('inf'))
+        if 'model_best' in ckpt:
+            model_best = copy.deepcopy(model)
+            model_best.load_state_dict(ckpt['model_best'])
+        print(f"  Resumed at epoch {start_epoch}, best_test_epe={best_test_epe:.4f}")
+
     # === Training loop ===
     save_dir = Path(cfg.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Save config
     with open(save_dir / "config.json", "w") as f:
         json.dump(asdict(cfg), f, indent=2)
-    
+
     print(f"\nStarting training for {cfg.epochs} epochs")
     print("=" * 60)
-    
+
     for epoch in range(start_epoch, cfg.epochs):
         t0 = time.time()
-        
+
         # Train
         train_loss, train_epe = train_epoch(
             model, train_loader, criterion, optimizer, device, epoch
         )
-        
+
         # Validate
         val_epe = validate(model, val_loader, criterion, device)
-        
+
+        # Test
+        test_epe = validate(model, test_loader, criterion, device)
+
         # LR step
         scheduler.step()
         lr = optimizer.param_groups[0]['lr']
-        
+
         dt = time.time() - t0
         print(f"Epoch {epoch+1:3d}/{cfg.epochs} | "
               f"train_loss={train_loss:.4f} train_epe={train_epe:.4f} | "
-              f"val_epe={val_epe:.4f} | lr={lr:.2e} | {dt:.1f}s")
-        
-        # Checkpoint
-        is_best = val_epe < best_epe
-        best_epe = min(val_epe, best_epe)
-        
+              f"val_epe={val_epe:.4f} test_epe={test_epe:.4f} | lr={lr:.2e} | {dt:.1f}s")
+
+        # Track best model by test EPE
+        if test_epe < best_test_epe:
+            best_test_epe = test_epe
+            model_best = copy.deepcopy(model)
+            torch.save({
+                'epoch': epoch,
+                'model': model.state_dict(),
+                'model_best': model_best.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler.state_dict(),
+                'best_test_epe': best_test_epe,
+                'config': asdict(cfg),
+            }, save_dir / "model_best.pth")
+            print(f"  *** New best model at epoch {epoch+1}: "
+                  f"test_epe={best_test_epe:.4f} val_epe={val_epe:.4f} train_epe={train_epe:.4f} ***")
+
+        # Periodic + last checkpoint
         ckpt = {
             'epoch': epoch,
             'model': model.state_dict(),
+            'model_best': model_best.state_dict() if model_best is not None else model.state_dict(),
             'optimizer': optimizer.state_dict(),
             'scheduler': scheduler.state_dict(),
-            'best_epe': best_epe,
+            'best_test_epe': best_test_epe,
             'config': asdict(cfg),
         }
-        
+
         if (epoch + 1) % cfg.save_freq == 0:
             torch.save(ckpt, save_dir / f"checkpoint_{epoch+1:03d}.pth")
-        
+
         torch.save(ckpt, save_dir / "checkpoint_last.pth")
-        
-        if is_best:
-            torch.save(ckpt, save_dir / "model_best.pth")
-            print(f"  *** New best model (EPE={best_epe:.4f}) ***")
-    
+
     print("\nTraining complete!")
-    print(f"Best validation EPE: {best_epe:.4f}")
-    return model
+    print(f"Best test EPE: {best_test_epe:.4f}")
+    return model_best if model_best is not None else model
 
 
 # ============================================================================
@@ -292,10 +424,13 @@ def load_model(weights_path: str, model_type: str = "piv", version: int = 1, dev
         model_type = ckpt['config'].get('model', model_type)
         version = ckpt['config'].get('version', version)
     
+    # Prefer best model weights if available
+    weights = ckpt.get('model_best', ckpt['model'])
+
     if model_type == "piv":
-        model = piv_liteflownet(params=ckpt['model'], version=version)
+        model = piv_liteflownet(params=weights, version=version)
     else:
-        model = hui_liteflownet(params=ckpt['model'], version=version)
+        model = hui_liteflownet(params=weights, version=version)
     
     model = model.to(device)
     model.eval()
@@ -442,7 +577,13 @@ def main():
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr-fine", type=float, default=0.0,
+                        help="Separate lr for fine NetE levels (<4). 0 = use --lr for all")
     parser.add_argument("--crop-size", type=int, nargs=2, default=[256, 256])
+    parser.add_argument("--sgdr-t0", type=int, default=10, help="SGDR: epochs in first cycle")
+    parser.add_argument("--sgdr-t-mult", type=int, default=2, help="SGDR: cycle length multiplier")
+    parser.add_argument("--loss-weights", type=str, default="cai", choices=["hui", "cai", "andy"],
+                        help="Loss weight scheme: hui (coarse-heavy) or cai (flat)")
     parser.add_argument("--save-dir", type=str, default="./checkpoints")
     
     # Inference
@@ -467,6 +608,10 @@ def main():
             epochs=args.epochs,
             batch_size=args.batch_size,
             lr=args.lr,
+            lr_fine=args.lr_fine,
+            sgdr_t0=args.sgdr_t0,
+            sgdr_t_mult=args.sgdr_t_mult,
+            loss_weights=args.loss_weights,
             save_dir=args.save_dir,
             num_workers=args.workers,
             device=args.device,
